@@ -324,6 +324,32 @@ async fn test_api_enterprise_get_with_basic_auth() {
 }
 
 #[tokio::test]
+async fn test_enterprise_cluster_alerts_reads_cluster_alerts_route() {
+    let temp_dir = TempDir::new().unwrap();
+    let mock_server = MockServer::start().await;
+
+    create_enterprise_profile(&temp_dir, &mock_server.uri()).unwrap();
+
+    // Redis Enterprise serves cluster alerts at /v1/cluster/alerts as a map keyed by alert
+    // name; there is no /v1/alerts route, so anything else gets a 404 from the mock.
+    Mock::given(method("GET"))
+        .and(path("/v1/cluster/alerts"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "cluster_too_few_nodes": { "enabled": true, "state": false },
+            "ocsp_query_failed": { "enabled": true, "state": true }
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    test_cmd(&temp_dir)
+        .args(["-o", "json", "enterprise", "cluster", "alerts"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ocsp_query_failed"));
+}
+
+#[tokio::test]
 async fn test_api_error_response_401() {
     let temp_dir = TempDir::new().unwrap();
     let mock_server = MockServer::start().await;
